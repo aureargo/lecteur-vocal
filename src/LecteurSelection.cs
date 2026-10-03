@@ -104,16 +104,33 @@ public static class LecteurSelection
         try
         {
             if (sauvegarde == null)
+            {
                 Clipboard.Clear();   // le presse-papiers était vide avant : on le revide
+            }
             else
+            {
+                MarquerCommeIgnorable(sauvegarde);
                 // copy: true = les données restent disponibles même après la fermeture du programme.
                 // Les deux derniers paramètres : 5 essais espacés de 100 ms si le presse-papiers est occupé.
                 Clipboard.SetDataObject(sauvegarde, copy: true, retryTimes: 5, retryDelay: 100);
+            }
         }
         catch (ExternalException)
         {
             // Presse-papiers bloqué par une autre application : tant pis, on ne restaure pas.
         }
+    }
+
+    /// <summary>
+    /// Ajoute des formats spéciaux, reconnus par Windows, qui disent : « ce contenu n'est pas
+    /// une nouvelle copie, ignorez-le ». L'historique Win+V ne crée pas de doublon, et les
+    /// logiciels qui surveillent le presse-papiers (s'ils respectent la convention) ne réagissent pas.
+    /// Seule la présence du format compte ; sa valeur est un entier 0 sur 4 octets.
+    /// </summary>
+    private static void MarquerCommeIgnorable(DataObject donnees)
+    {
+        donnees.SetData("ExcludeClipboardContentFromMonitorProcessing", new MemoryStream(new byte[4]));
+        donnees.SetData("CanIncludeInClipboardHistory", new MemoryStream(new byte[4]));
     }
 
     /// <summary>
