@@ -27,6 +27,14 @@ public static class LecteurSelection
     [DllImport("user32.dll")]
     private static extern void keybd_event(byte touche, byte codeMateriel, uint drapeaux, UIntPtr infos);
 
+    // Indique si une touche est enfoncée en ce moment (bit de poids fort du résultat).
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int touche);
+
+    private const byte VK_SHIFT = 0x10;
+    private const byte VK_MENU = 0x12;   // Alt
+    private const byte VK_LWIN = 0x5B;
+    private const byte VK_RWIN = 0x5C;
     private const byte VK_CONTROL = 0x11;
     private const byte VK_C = 0x43;
     private const uint KEYEVENTF_KEYUP = 0x0002;
@@ -39,6 +47,12 @@ public static class LecteurSelection
     /// </summary>
     public static async Task<string?> CopierSelectionAsync()
     {
+        // Si le raccourci est une combinaison (ex. Ctrl + Alt + L), l'utilisateur tient peut-être
+        // encore Alt : notre Ctrl+C deviendrait Ctrl+Alt+C. On attend que tout soit relâché.
+        var attente = Stopwatch.StartNew();
+        while (ModificateurEnfonce() && attente.ElapsedMilliseconds < 1500)
+            await Task.Delay(15);
+
         DataObject? sauvegarde = SauvegarderPressePapiers();
         uint compteurAvant = GetClipboardSequenceNumber();
 
@@ -65,6 +79,9 @@ public static class LecteurSelection
     /// Envoie Ctrl+C à la fenêtre au premier plan : Ctrl enfoncé, C enfoncé, C relâché, Ctrl relâché.
     /// (SendKeys.SendWait("^c") de WinForms ne passait pas de façon fiable vers les autres programmes.)
     /// </summary>
+    private static bool ModificateurEnfonce() =>
+        new[] { VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN }.Any(t => GetAsyncKeyState(t) < 0);
+
     private static void SimulerCtrlC()
     {
         keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);

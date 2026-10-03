@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace LecteurVocal;
 
@@ -12,6 +13,13 @@ public sealed class Reglages
     public string? Voix { get; set; }
     public int Vitesse { get; set; } = 3;   // ≈ ×1,6
     public int Timbre { get; set; }
+
+    /// <summary>
+    /// Raccourci de lecture de la sélection. Enregistré en texte (« L, Control, Alt »)
+    /// plutôt qu'en nombre, pour rester lisible dans le fichier JSON.
+    /// </summary>
+    [JsonConverter(typeof(JsonStringEnumConverter<Keys>))]
+    public Keys Raccourci { get; set; } = Keys.Pause;
 
     /// <summary>Vrai une fois qu'on a expliqué que fermer la fenêtre laisse l'appli active.</summary>
     public bool ReductionDejaExpliquee { get; set; }

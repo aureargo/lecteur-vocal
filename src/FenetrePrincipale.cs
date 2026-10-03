@@ -15,6 +15,8 @@ public sealed class FenetrePrincipale : Form
     // Icône dans la zone de notification (près de l'horloge), avec son menu clic droit.
     private readonly NotifyIcon _iconeNotification = new();
     private readonly ToolStripMenuItem _menuDemarrage = new("Lancer au démarrage de Windows");
+    // La même option, dans le menu Configuration de la fenêtre (les deux restent synchronisées).
+    private readonly ToolStripMenuItem _menuDemarrageConfig = new("Lancer au démarrage de Windows");
 
     // Signal envoyé par un second lancement du programme (voir Program.cs) pour afficher la fenêtre.
     private readonly RegisteredWaitHandle _attenteSignal;
@@ -46,8 +48,12 @@ public sealed class FenetrePrincipale : Form
     private readonly System.Windows.Forms.Timer _minuteurRelance = new() { Interval = 300 };
 
     // La touche qui lit la sélection. null si elle n'a pas pu être réservée.
-    private readonly RaccourciGlobal? _raccourci;
+    private RaccourciGlobal? _raccourci;
     private bool _captureEnCours;
+
+    // false quand la voix lit un texte qui n'est pas celui de la zone (le guide des voix) :
+    // il ne faut alors ni surligner ni réagir aux clics dans la zone.
+    private bool _lectureDeLaZone = true;
 
     // Mémoire pour MettreAJourEtat : état précédent et dernier mot surligné.
     private bool _etaitOccupe;
@@ -61,7 +67,8 @@ public sealed class FenetrePrincipale : Form
     private string? _message;
     private DateTime _messageExpire;
 
-    private const string AideRaccourci = "Sélectionne du texte n'importe où et appuie sur la touche Pause pour l'écouter.";
+    /// <summary>Nom lisible du raccourci actuel, par exemple « Pause » ou « Ctrl + Alt + L ».</summary>
+    private string NomRaccourci => NomsTouches.Decrire(_reglages.Raccourci);
 
     public FenetrePrincipale(EventWaitHandle signalAfficher, bool demarrerCache)
     {
@@ -78,15 +85,10 @@ public sealed class FenetrePrincipale : Form
         CreerIconeNotification();
         RemplirReglages();
 
-        try
+        if (!ActiverRaccourci(_reglages.Raccourci, out string? erreur))
         {
-            _raccourci = new RaccourciGlobal(Keys.Pause);
-            _raccourci.Appuye += QuandRaccourciAppuye;
-        }
-        catch (System.ComponentModel.Win32Exception ex)
-        {
-            AfficherMessage(ex.Message, secondes: 30);
-            _iconeNotification.ShowBalloonTip(5000, "Lecteur vocal", ex.Message, ToolTipIcon.Warning);
+            AfficherMessage(erreur, secondes: 30);
+            _iconeNotification.ShowBalloonTip(5000, "Lecteur vocal", erreur, ToolTipIcon.Warning);
         }
 
         _minuteur.Tick += (_, _) => MettreAJourEtat();
@@ -162,10 +164,11 @@ public sealed class FenetrePrincipale : Form
         _barreEtat.ForeColor = SystemColors.GrayText;
 
         // L'ordre d'ajout compte avec Dock : le contrôle « Fill » doit être ajouté en premier
-        // pour qu'il prenne la place laissée libre par ceux docké en bas.
+        // pour qu'il prenne la place laissée libre par ceux dockés en haut et en bas.
         Controls.Add(_zoneTexte);
         Controls.Add(reglages);
         Controls.Add(_barreEtat);
+        Controls.Add(CreerMenu());
 
         // Les événements des réglages sont branchés après le remplissage initial
         // (voir RemplirReglages) pour ne pas se déclencher pendant l'initialisation.
@@ -201,15 +204,42 @@ public sealed class FenetrePrincipale : Form
         }
     }
 
+    /// <summary>Barre de menus en haut de la fenêtre : Fichier, Configuration, Aide.</summary>
+    private MenuStrip CreerMenu()
+    {
+        // Le « & » devant une lettre la souligne : Alt + cette lettre ouvre le menu au clavier.
+        var fichier = new ToolStripMenuItem("&Fichier");
+        fichier.DropDownItems.Add(new ToolStripMenuItem("&Ouvrir un fichier texte…", null, (_, _) => OuvrirFichier(), Keys.Control | Keys.O));
+        fichier.DropDownItems.Add(new ToolStripMenuItem("&Enregistrer le texte sous…", null, (_, _) => EnregistrerFichier(), Keys.Control | Keys.S));
+        fichier.DropDownItems.Add(new ToolStripSeparator());
+        fichier.DropDownItems.Add(new ToolStripMenuItem("&Quitter", null, (_, _) => Quitter()));
+
+        var configuration = new ToolStripMenuItem("&Configuration");
+        configuration.DropDownItems.Add(new ToolStripMenuItem("&Touche de lecture…", null, (_, _) => ChoisirRaccourci()));
+        configuration.DropDownItems.Add(_menuDemarrageConfig);
+
+        var aide = new ToolStripMenuItem("&Aide");
+        aide.DropDownItems.Add(new ToolStripMenuItem("&Installer de nouvelles voix…", null, (_, _) => AfficherAideVoix()));
+        aide.DropDownItems.Add(new ToolStripMenuItem("À &propos", null, (_, _) => AfficherAPropos()));
+
+        var menu = new MenuStrip { Dock = DockStyle.Top };
+        menu.Items.AddRange([fichier, configuration, aide]);
+        MainMenuStrip = menu;   // menu principal de la fenêtre (gère la touche Alt)
+        return menu;
+    }
+
     /// <summary>Crée l'icône près de l'horloge et son menu (clic droit).</summary>
     private void CreerIconeNotification()
     {
-        _menuDemarrage.Checked = DemarrageWindows.EstActive;
-        _menuDemarrage.Click += (_, _) =>
+        foreach (var option in new[] { _menuDemarrage, _menuDemarrageConfig })
         {
-            DemarrageWindows.Activer(!_menuDemarrage.Checked);
-            _menuDemarrage.Checked = DemarrageWindows.EstActive;
-        };
+            option.Checked = DemarrageWindows.EstActive;
+            option.Click += (_, _) =>
+            {
+                DemarrageWindows.Activer(!DemarrageWindows.EstActive);
+                _menuDemarrage.Checked = _menuDemarrageConfig.Checked = DemarrageWindows.EstActive;
+            };
+        }
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("Ouvrir", null, (_, _) => Afficher());
@@ -219,7 +249,7 @@ public sealed class FenetrePrincipale : Form
 
         // Icône en petite taille (16×16 à 100 %, plus grand sur les écrans mis à l'échelle).
         _iconeNotification.Icon = new Icon(Icon!, SystemInformation.SmallIconSize);
-        _iconeNotification.Text = "Lecteur vocal — touche Pause pour lire la sélection";
+        _iconeNotification.Text = "Lecteur vocal";   // complété avec le raccourci dans ActiverRaccourci
         _iconeNotification.ContextMenuStrip = menu;
         _iconeNotification.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) Afficher(); };
         _iconeNotification.Visible = true;
@@ -309,7 +339,33 @@ public sealed class FenetrePrincipale : Form
         }
         int depart = _zoneTexte.SelectionStart;
         if (depart >= texte.TrimEnd().Length) depart = 0;
+        _lectureDeLaZone = true;
         Executer(() => _moteur.Lire(texte, depart));
+    }
+
+    /// <summary>Lit un texte qui n'est pas dans la zone (le guide des voix), sans surlignage.</summary>
+    private void LireTexteExterne(string texte)
+    {
+        _lectureDeLaZone = false;
+        Executer(() => _moteur.Lire(texte));
+    }
+
+    /// <summary>
+    /// Touche Espace dans la fenêtre : pause / reprise pendant une lecture.
+    ///
+    /// Pas de conflit avec l'écriture : pendant la lecture et la pause, la zone de texte est en
+    /// lecture seule. Quand rien n'est lu, Espace garde son rôle normal (taper un espace).
+    /// ProcessCmdKey est appelée avant que la touche n'atteigne le contrôle qui a le focus :
+    /// renvoyer true « consomme » la touche (un bouton sélectionné ne sera donc pas cliqué).
+    /// </summary>
+    protected override bool ProcessCmdKey(ref Message message, Keys touches)
+    {
+        if (touches == Keys.Space && _moteur.EstOccupe)
+        {
+            Executer(_moteur.PauseOuReprise);
+            return true;
+        }
+        return base.ProcessCmdKey(ref message, touches);
     }
 
     /// <summary>
@@ -319,7 +375,7 @@ public sealed class FenetrePrincipale : Form
     private void QuandClicDansTexte(object? sender, MouseEventArgs e)
     {
         bool simpleClic = Math.Abs(e.X - _pointAppuiSouris.X) < 4 && Math.Abs(e.Y - _pointAppuiSouris.Y) < 4;
-        if (e.Button != MouseButtons.Left || !simpleClic || !_moteur.EstOccupe) return;
+        if (e.Button != MouseButtons.Left || !simpleClic || !_moteur.EstOccupe || !_lectureDeLaZone) return;
 
         int position = _zoneTexte.GetCharIndexFromPosition(e.Location);
         Executer(() => _moteur.AllerA(position));
@@ -327,7 +383,7 @@ public sealed class FenetrePrincipale : Form
     }
 
     /// <summary>
-    /// Touche Pause pressée (n'importe où dans Windows) :
+    /// Raccourci de lecture pressé (n'importe où dans Windows) :
     /// si une lecture est en cours, on l'arrête ; sinon, on lit le texte sélectionné.
     ///
     /// <c>async void</c> : réservé aux gestionnaires d'événements. Le <c>await</c> rend la main
@@ -355,6 +411,7 @@ public sealed class FenetrePrincipale : Form
             }
             // Le texte capturé s'affiche dans la fenêtre : on peut le relire ou le modifier ensuite.
             _zoneTexte.Text = texte;
+            _lectureDeLaZone = true;
             Executer(() => _moteur.Lire(texte));
         }
         finally
@@ -399,7 +456,7 @@ public sealed class FenetrePrincipale : Form
 
         if (occupe)
         {
-            SurlignerMotEnCours();
+            if (_lectureDeLaZone) SurlignerMotEnCours();
         }
         else if (_etaitOccupe)
         {
@@ -412,9 +469,9 @@ public sealed class FenetrePrincipale : Form
 
         string etat;
         if (_message != null && DateTime.Now < _messageExpire) etat = _message;
-        else if (_moteur.EnPause) etat = "En pause. Clique sur un mot pour choisir où reprendre.";
-        else if (occupe) etat = "Lecture en cours…  (clic sur un mot = y sauter ; touche Pause = arrêter)";
-        else etat = AideRaccourci;
+        else if (_moteur.EnPause) etat = "En pause. Espace = reprendre ; clic sur un mot = reprendre à cet endroit.";
+        else if (occupe) etat = $"Lecture en cours…  Espace = pause ; clic sur un mot = y sauter ; {NomRaccourci} = arrêter.";
+        else etat = $"Sélectionne du texte n'importe où et appuie sur {NomRaccourci} pour l'écouter.";
 
         // On ne réaffecte le texte que s'il change, pour éviter un scintillement.
         if (_barreEtat.Text != etat) _barreEtat.Text = etat;
@@ -434,6 +491,146 @@ public sealed class FenetrePrincipale : Form
         if (debut + longueur > _zoneTexte.TextLength) return;   // sécurité
         _zoneTexte.Select(debut, longueur);
         _zoneTexte.ScrollToCaret();
+    }
+
+    // ------------------------------------------------------------------ Raccourci de lecture
+
+    /// <summary>
+    /// Réserve le raccourci auprès de Windows (en libérant l'ancien).
+    /// Renvoie false, avec le message d'erreur, si un autre programme l'utilise déjà.
+    /// </summary>
+    private bool ActiverRaccourci(Keys combinaison, [System.Diagnostics.CodeAnalysis.NotNullWhen(false)] out string? erreur)
+    {
+        _raccourci?.Dispose();
+        _raccourci = null;
+        try
+        {
+            _raccourci = new RaccourciGlobal(combinaison);
+            _raccourci.Appuye += QuandRaccourciAppuye;
+            _iconeNotification.Text = $"Lecteur vocal — {NomsTouches.Decrire(combinaison)} pour lire la sélection";
+            erreur = null;
+            return true;
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            erreur = ex.Message;
+            return false;
+        }
+    }
+
+    private void ChoisirRaccourci()
+    {
+        Keys ancien = _reglages.Raccourci;
+        // Le raccourci actuel est libéré pendant le choix : sinon Windows l'intercepterait
+        // et la fenêtre de choix ne recevrait jamais la touche.
+        _raccourci?.Dispose();
+        _raccourci = null;
+
+        // using : la fenêtre de dialogue est libérée (Dispose) à la fin du bloc.
+        using var fenetre = new FenetreRaccourci(ancien);
+        Keys choisi = fenetre.ShowDialog(this) == DialogResult.OK ? fenetre.Combinaison : ancien;
+
+        if (ActiverRaccourci(choisi, out string? erreur))
+        {
+            _reglages.Raccourci = choisi;
+            _reglages.Enregistrer();
+        }
+        else
+        {
+            MessageBox.Show(this, erreur + "\r\nL'ancien raccourci est conservé.", "Touche de lecture",
+                            MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            ActiverRaccourci(ancien, out _);
+        }
+    }
+
+    // ------------------------------------------------------------------ Fichiers
+
+    private const string FiltreFichiers = "Fichiers texte (*.txt;*.md)|*.txt;*.md|Tous les fichiers (*.*)|*.*";
+
+    private void OuvrirFichier()
+    {
+        using var dialogue = new OpenFileDialog { Title = "Ouvrir un fichier texte", Filter = FiltreFichiers };
+        if (dialogue.ShowDialog(this) != DialogResult.OK) return;
+
+        Executer(_moteur.Arreter);
+        try
+        {
+            _zoneTexte.Text = LireFichierTexte(dialogue.FileName);
+            _zoneTexte.Select(0, 0);   // curseur au début : Lire partira du début
+            AfficherMessage($"Fichier ouvert : {Path.GetFileName(dialogue.FileName)}");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            MessageBox.Show(this, $"Impossible d'ouvrir le fichier :\r\n{ex.Message}", "Ouvrir",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    /// <summary>
+    /// Lit un fichier texte en devinant son encodage. Les fichiers récents sont en UTF-8 ;
+    /// les anciens fichiers Windows sont souvent en « Windows-1252 » (les accents seraient
+    /// abîmés si on les lisait en UTF-8). On essaie UTF-8 en mode strict, et on se rabat sur
+    /// Windows-1252 si le contenu n'est pas de l'UTF-8 valide.
+    /// </summary>
+    private static string LireFichierTexte(string chemin)
+    {
+        byte[] octets = File.ReadAllBytes(chemin);
+        try
+        {
+            // throwOnInvalidBytes: true → exception au premier octet qui n'est pas de l'UTF-8 valide.
+            string texte = new System.Text.UTF8Encoding(false, throwOnInvalidBytes: true).GetString(octets);
+            return texte.TrimStart('﻿').ReplaceLineEndings("\r\n");   // retire l'éventuelle « BOM »
+        }
+        catch (System.Text.DecoderFallbackException)
+        {
+            // .NET n'inclut pas les vieux encodages par défaut : on les active avant d'utiliser 1252.
+            System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+            return System.Text.Encoding.GetEncoding(1252).GetString(octets).ReplaceLineEndings("\r\n");
+        }
+    }
+
+    private void EnregistrerFichier()
+    {
+        using var dialogue = new SaveFileDialog
+        {
+            Title = "Enregistrer le texte",
+            Filter = FiltreFichiers,
+            DefaultExt = "txt",
+            FileName = "texte.txt",
+        };
+        if (dialogue.ShowDialog(this) != DialogResult.OK) return;
+
+        try
+        {
+            File.WriteAllText(dialogue.FileName, _zoneTexte.Text);   // UTF-8 par défaut
+            AfficherMessage($"Texte enregistré : {Path.GetFileName(dialogue.FileName)}");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            MessageBox.Show(this, $"Impossible d'enregistrer :\r\n{ex.Message}", "Enregistrer",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    // ------------------------------------------------------------------ Aide
+
+    private void AfficherAideVoix()
+    {
+        using var fenetre = new FenetreAideVoix(LireTexteExterne);
+        fenetre.ShowDialog(this);
+        // Fermer le guide arrête sa lecture (mais pas celle de la zone de texte).
+        if (!_lectureDeLaZone) Executer(_moteur.Arreter);
+    }
+
+    private void AfficherAPropos()
+    {
+        MessageBox.Show(this,
+            $"Lecteur vocal {Application.ProductVersion.Split('+')[0]}\r\n\r\n"
+            + "Lecture à voix haute, hors ligne, du texte collé ou sélectionné.\r\n"
+            + "Voix Windows via SAPI (voix naturelles grâce à NaturalVoiceSAPIAdapter).\r\n\r\n"
+            + $"Raccourci de lecture : {NomRaccourci}\r\n"
+            + "Espace (dans la fenêtre) : pause / reprise",
+            "À propos", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
     // ------------------------------------------------------------------ Affichage et fermeture
@@ -476,7 +673,7 @@ public sealed class FenetrePrincipale : Form
             if (!_reglages.ReductionDejaExpliquee)
             {
                 _iconeNotification.ShowBalloonTip(6000, "Le Lecteur vocal reste actif",
-                    "La touche Pause fonctionne toujours. Clic sur cette icône pour rouvrir la fenêtre, "
+                    $"La touche {NomRaccourci} fonctionne toujours. Clic sur cette icône pour rouvrir la fenêtre, "
                     + "clic droit → Quitter pour l'arrêter.", ToolTipIcon.Info);
                 _reglages.ReductionDejaExpliquee = true;
                 _reglages.Enregistrer();
