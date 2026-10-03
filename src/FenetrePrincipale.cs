@@ -27,6 +27,17 @@ public sealed class FenetrePrincipale : Form
     // donc on peut toucher aux contrôles sans précaution particulière.
     private readonly System.Windows.Forms.Timer _minuteur = new() { Interval = 50 };
 
+    // La touche qui lit la sélection. null si elle n'a pas pu être réservée.
+    private readonly RaccourciGlobal? _raccourci;
+    private bool _captureEnCours;
+
+    // Message ponctuel affiché dans la barre d'état (erreur, « rien à lire »...),
+    // prioritaire sur l'état normal jusqu'à son expiration.
+    private string? _message;
+    private DateTime _messageExpire;
+
+    private const string AideRaccourci = "Sélectionne du texte n'importe où et appuie sur la touche Pause pour l'écouter.";
+
     public FenetrePrincipale()
     {
         Text = "Lecteur vocal";
@@ -37,6 +48,16 @@ public sealed class FenetrePrincipale : Form
 
         ConstruireInterface();
         RemplirReglages();
+
+        try
+        {
+            _raccourci = new RaccourciGlobal(Keys.Pause);
+            _raccourci.Appuye += QuandRaccourciAppuye;
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            AfficherMessage(ex.Message, secondes: 30);
+        }
 
         _minuteur.Tick += (_, _) => MettreAJourEtat();
         _minuteur.Start();
@@ -179,7 +200,7 @@ public sealed class FenetrePrincipale : Form
         string texte = _zoneTexte.Text;
         if (string.IsNullOrWhiteSpace(texte))
         {
-            _barreEtat.Text = "Rien à lire : colle d'abord un texte.";
+            AfficherMessage("Rien à lire : colle d'abord un texte.");
             return;
         }
         LireTexte(texte);
@@ -194,8 +215,49 @@ public sealed class FenetrePrincipale : Form
         catch (COMException ex)
         {
             // Une erreur SAPI ne doit pas faire planter l'application : on l'affiche.
-            _barreEtat.Text = $"Erreur de la voix : {ex.Message}";
+            AfficherMessage($"Erreur de la voix : {ex.Message}", secondes: 10);
         }
+    }
+
+    /// <summary>
+    /// Touche Pause pressée (n'importe où dans Windows) :
+    /// si une lecture est en cours, on l'arrête ; sinon, on lit le texte sélectionné.
+    ///
+    /// <c>async void</c> : réservé aux gestionnaires d'événements. Le <c>await</c> rend la main
+    /// à l'interface pendant la copie, puis la suite s'exécute à nouveau sur le thread de l'interface.
+    /// </summary>
+    private async void QuandRaccourciAppuye()
+    {
+        if (_moteur.EstOccupe)
+        {
+            _moteur.Arreter();
+            return;
+        }
+        if (_captureEnCours) return;   // appui répété pendant une copie : on ignore
+
+        _captureEnCours = true;
+        try
+        {
+            string? texte = await LecteurSelection.CopierSelectionAsync();
+            if (string.IsNullOrWhiteSpace(texte))
+            {
+                AfficherMessage("Aucun texte sélectionné.");
+                return;
+            }
+            // Le texte capturé s'affiche dans la fenêtre : on peut le relire ou le modifier ensuite.
+            _zoneTexte.Text = texte;
+            LireTexte(texte);
+        }
+        finally
+        {
+            _captureEnCours = false;
+        }
+    }
+
+    private void AfficherMessage(string message, int secondes = 4)
+    {
+        _message = message;
+        _messageExpire = DateTime.Now.AddSeconds(secondes);
     }
 
     /// <summary>Appelée par le minuteur : met les boutons en accord avec l'état de la voix.</summary>
@@ -207,14 +269,19 @@ public sealed class FenetrePrincipale : Form
         _boutonStop.Enabled = occupe;
         _boutonPause.Text = _moteur.EnPause ? "▶  Reprendre" : "⏸  Pause";
 
-        _barreEtat.Text = occupe
-            ? (_moteur.EnPause ? "En pause." : "Lecture en cours…")
-            : (_barreEtat.Text.StartsWith("Erreur") || _barreEtat.Text.StartsWith("Rien") ? _barreEtat.Text : "Prêt.");
+        string etat;
+        if (_message != null && DateTime.Now < _messageExpire) etat = _message;
+        else if (occupe) etat = _moteur.EnPause ? "En pause." : "Lecture en cours…  (touche Pause = arrêter)";
+        else etat = AideRaccourci;
+
+        // On ne réaffecte le texte que s'il change, pour éviter un scintillement.
+        if (_barreEtat.Text != etat) _barreEtat.Text = etat;
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         _minuteur.Stop();
+        _raccourci?.Dispose();
         _moteur.Dispose();
         base.OnFormClosed(e);
     }
