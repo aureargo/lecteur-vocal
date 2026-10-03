@@ -10,11 +10,15 @@ Double-clic sur **`installer.cmd`**. Ensuite, l'appli est dans le **menu Démarr
 
 | Action | Effet |
 |---|---|
-| Sélectionner du texte n'importe où + touche **Pause** | Lit la sélection |
+| Sélectionner du texte n'importe où + touche **Pause** (modifiable) | Lit la sélection |
 | Touche **Pause** pendant la lecture | Arrête |
 | Coller un texte dans la fenêtre + **▶ Lire** | Lit à partir du curseur |
 | Clic sur un mot (lecture ou pause) | Saute à ce mot |
 | **Pause / Reprendre** | Reprend au mot précédent |
+| **Espace** pendant la lecture (fenêtre active) | Pause / reprise |
+| Menu **Fichier** | Ouvrir un fichier texte, enregistrer le texte |
+| Menu **Configuration** | Changer la touche de lecture (ou une combinaison), lancement au démarrage |
+| Menu **Aide** | Guide d'installation de nouvelles voix (écoutable), À propos |
 | Croix de la fenêtre | Cache la fenêtre, l'appli reste active près de l'horloge |
 | Clic droit sur l'icône près de l'horloge | Ouvrir, lancer au démarrage de Windows, Quitter |
 
@@ -37,3 +41,5 @@ Un Ctrl+C normal ne déclenche **jamais** de lecture.
 | `src/RaccourciGlobal.cs` | Touche Pause globale |
 | `src/Reglages.cs` | Réglages mémorisés (`%AppData%\LecteurVocal\reglages.json`) |
 | `src/DemarrageWindows.cs` | Lancement à l'ouverture de session |
+| `src/FenetreRaccourci.cs`, `src/NomsTouches.cs` | Choix de la touche de lecture |
+| `src/FenetreAideVoix.cs` | Guide d'installation des voix |
