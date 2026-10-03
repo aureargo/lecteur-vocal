@@ -1,0 +1,2 @@
+# Les scripts .cmd doivent garder des fins de ligne Windows (CRLF)
+*.cmd text eol=crlf
