@@ -14,6 +14,11 @@ namespace LecteurVocal;
 /// entre programmes). On le pilote ici avec le mot-clé C# <c>dynamic</c> : les appels
 /// de méthodes sont résolus à l'exécution, comme en JavaScript, au lieu d'être vérifiés
 /// à la compilation. C'est la façon la plus simple de parler à COM sans fichier d'interop.
+///
+/// Particularité importante : avec les voix naturelles, SAPI n'applique la vitesse et le
+/// timbre qu'au lancement d'une lecture, et sa propre pause saute un bout de texte.
+/// Le moteur gère donc lui-même la position dans le texte : mettre en pause, changer un
+/// réglage ou sauter à un mot revient toujours à <b>relancer la lecture à partir d'une position</b>.
 /// </summary>
 public sealed class MoteurVocal : IDisposable
 {
@@ -28,12 +33,20 @@ public sealed class MoteurVocal : IDisposable
 
     private readonly dynamic _voix;                                   // l'objet COM « SAPI.SpVoice »
     private readonly Dictionary<string, dynamic> _jetonsParNom = new(); // nom affiché → jeton de voix
+    private string? _voixAppliquee;   // dernière voix réellement transmise à SAPI
+
+    // Le texte complet en cours de lecture, et la position où la dernière relance a commencé.
+    private string _texte = "";
+    private int _depart;
 
     // Le texte envoyé à SAPI n'est pas exactement celui de l'utilisateur (balises ajoutées,
     // caractères « & < > » échappés). Ces deux champs permettent de retrouver, à partir d'une
     // position dans le texte envoyé, la position dans le texte d'origine.
     private int _longueurPrefixe;
     private int[] _versOriginal = [];
+
+    // Position (dans _texte) d'où repartira la lecture après une pause. null = pas en pause.
+    private int? _positionReprise;
 
     public MoteurVocal()
     {
@@ -51,79 +64,104 @@ public sealed class MoteurVocal : IDisposable
             dynamic jeton = jetons.Item(i);
             _jetonsParNom[(string)jeton.GetDescription()] = jeton;
         }
+
+        VoixActuelle = (string)_voix.Voice.GetDescription();
+        _voixAppliquee = VoixActuelle;
     }
+
+    // ------------------------------------------------------------------ Réglages
+    // Ils sont seulement mémorisés ici, puis transmis à SAPI au prochain lancement de lecture
+    // (voir Parler). Pour les appliquer pendant une lecture, appeler Relancer().
 
     /// <summary>Noms des voix installées, triés alphabétiquement.</summary>
     public IReadOnlyList<string> Voix => _jetonsParNom.Keys.Order().ToList();
 
-    /// <summary>Nom de la voix utilisée. Un nom inconnu est ignoré.</summary>
-    public string VoixActuelle
-    {
-        get => (string)_voix.Voice.GetDescription();
-        set
-        {
-            if (_jetonsParNom.TryGetValue(value, out dynamic? jeton))
-                _voix.Voice = jeton;
-        }
-    }
+    /// <summary>Nom de la voix choisie.</summary>
+    public string VoixActuelle { get; set; }
 
     /// <summary>Vitesse SAPI, de -10 (lent) à 10 (rapide). 0 = vitesse normale.</summary>
-    public int Vitesse
-    {
-        get => (int)_voix.Rate;
-        set => _voix.Rate = Math.Clamp(value, -10, 10);
-    }
+    public int Vitesse { get; set; }
 
     /// <summary>Hauteur de la voix (timbre), de -10 (grave) à 10 (aigu).</summary>
     public int Timbre { get; set; }
 
-    /// <summary>Vrai tant que la voix parle (y compris quand elle est en pause).</summary>
-    public bool EstOccupe => (int)_voix.Status.RunningState != EtatTermine;
+    // ------------------------------------------------------------------ État
 
-    public bool EnPause { get; private set; }
+    /// <summary>Vrai pendant que la voix parle (pas en pause).</summary>
+    public bool EnLecture => _positionReprise == null && (int)_voix.Status.RunningState != EtatTermine;
 
-    /// <summary>Lance la lecture du texte (et coupe la lecture précédente s'il y en a une).</summary>
-    public void Lire(string texte)
+    public bool EnPause => _positionReprise != null;
+
+    /// <summary>Vrai si une lecture est en cours ou en pause.</summary>
+    public bool EstOccupe => EnPause || EnLecture;
+
+    // ------------------------------------------------------------------ Commandes
+
+    /// <summary>Lit le texte à partir de la position indiquée (0 = depuis le début).</summary>
+    public void Lire(string texte, int depart = 0)
     {
-        Arreter();
-
-        // Le timbre ne se règle pas par une propriété : il passe par une balise XML SAPI
-        // qui entoure le texte. Le texte doit donc être « échappé » pour rester du XML valide.
-        string prefixe = $"<pitch absmiddle=\"{Math.Clamp(Timbre, -10, 10)}\">";
-        (string corps, _versOriginal) = EchapperPourXml(texte);
-        _longueurPrefixe = prefixe.Length;
-
-        _voix.Speak(prefixe + corps + "</pitch>", ParlerEnArrierePlan | ViderFileAttente | TexteEnXml);
+        _texte = texte;
+        _positionReprise = null;
+        Parler(Math.Clamp(depart, 0, texte.Length));
     }
 
-    /// <summary>Met en pause, ou reprend si on était déjà en pause.</summary>
+    /// <summary>Met en pause en retenant le mot en cours.</summary>
+    public void Pause()
+    {
+        if (!EnLecture) return;
+        int motEnCours = MotEnCours()?.Debut ?? _depart;
+        CouperSapi();
+        // À la reprise, on repart du mot d'avant : la phrase redémarre avec un peu de contexte.
+        _positionReprise = DebutDuMotPrecedent(_texte, motEnCours);
+    }
+
+    public void Reprendre()
+    {
+        if (_positionReprise is int position)
+        {
+            _positionReprise = null;
+            Parler(position);
+        }
+    }
+
     public void PauseOuReprise()
     {
-        if (!EstOccupe) return;
-        if (EnPause) _voix.Resume(); else _voix.Pause();
-        EnPause = !EnPause;
+        if (EnPause) Reprendre(); else Pause();
+    }
+
+    /// <summary>
+    /// Saute au mot situé à cette position du texte. En lecture, la voix y va tout de suite ;
+    /// en pause, c'est de là que repartira la reprise.
+    /// </summary>
+    public void AllerA(int position)
+    {
+        int debut = DebutDuMot(_texte, position);
+        if (EnPause) _positionReprise = debut;
+        else if (EnLecture) Parler(debut);
+    }
+
+    /// <summary>Relance la lecture depuis le mot en cours, pour appliquer de nouveaux réglages.</summary>
+    public void Relancer()
+    {
+        if (EnLecture) Parler(MotEnCours()?.Debut ?? _depart);
+        // En pause : rien à faire, la reprise utilisera déjà les nouveaux réglages.
     }
 
     public void Arreter()
     {
-        // Une voix en pause doit être relancée, sinon elle resterait bloquée
-        // et la lecture suivante ne démarrerait jamais.
-        if (EnPause)
-        {
-            _voix.Resume();
-            EnPause = false;
-        }
-        // Parler une chaîne vide en vidant la file = arrêter net.
-        _voix.Speak("", ParlerEnArrierePlan | ViderFileAttente);
+        _positionReprise = null;
+        CouperSapi();
     }
 
     /// <summary>
-    /// Position du mot en train d'être prononcé, dans le texte d'origine.
-    /// Renvoie null si aucune lecture n'est en cours ou si la position est inconnue.
+    /// Mot en cours de lecture, ou mot de reprise si on est en pause, en position dans le texte
+    /// complet. null si rien n'est en cours ou si la position est inconnue.
     /// </summary>
     public (int Debut, int Longueur)? MotEnCours()
     {
-        if (!EstOccupe) return null;
+        if (_positionReprise is int reprise)
+            return (reprise, LongueurDuMot(_texte, reprise));
+        if (!EnLecture) return null;
 
         dynamic statut = _voix.Status;
         int debut = (int)statut.InputWordPosition - _longueurPrefixe;
@@ -132,7 +170,60 @@ public sealed class MoteurVocal : IDisposable
 
         int fin = Math.Min(debut + longueur, _versOriginal.Length) - 1;
         int debutOriginal = _versOriginal[debut];
-        return (debutOriginal, _versOriginal[fin] - debutOriginal + 1);
+        return (_depart + debutOriginal, _versOriginal[fin] - debutOriginal + 1);
+    }
+
+    // ------------------------------------------------------------------ Mécanique interne
+
+    /// <summary>Envoie à SAPI le texte à partir de <paramref name="depart"/>, avec les réglages actuels.</summary>
+    private void Parler(int depart)
+    {
+        CouperSapi();
+
+        // Les réglages sont transmis maintenant, voix à l'arrêt : c'est le seul moment
+        // où SAPI les prend en compte de façon fiable.
+        if (VoixActuelle != _voixAppliquee && _jetonsParNom.TryGetValue(VoixActuelle, out dynamic? jeton))
+        {
+            _voix.Voice = jeton;
+            _voixAppliquee = VoixActuelle;
+        }
+        _voix.Rate = Math.Clamp(Vitesse, -10, 10);
+
+        _depart = depart;
+        // Le timbre ne se règle pas par une propriété : il passe par une balise XML SAPI
+        // qui entoure le texte. Le texte doit donc être « échappé » pour rester du XML valide.
+        string prefixe = $"<pitch absmiddle=\"{Math.Clamp(Timbre, -10, 10)}\">";
+        (string corps, _versOriginal) = EchapperPourXml(_texte[depart..]);
+        _longueurPrefixe = prefixe.Length;
+
+        _voix.Speak(prefixe + corps + "</pitch>", ParlerEnArrierePlan | ViderFileAttente | TexteEnXml);
+    }
+
+    /// <summary>Arrête net la voix : parler une chaîne vide en vidant la file d'attente.</summary>
+    private void CouperSapi() => _voix.Speak("", ParlerEnArrierePlan | ViderFileAttente);
+
+    // Un « mot » = une suite de caractères sans espace (la ponctuation collée en fait partie).
+
+    private static int DebutDuMot(string texte, int position)
+    {
+        position = Math.Clamp(position, 0, texte.Length);
+        while (position > 0 && !char.IsWhiteSpace(texte[position - 1])) position--;
+        return position;
+    }
+
+    /// <summary>Début du mot qui précède celui commençant en <paramref name="debutMot"/> (ou 0 s'il n'y en a pas).</summary>
+    private static int DebutDuMotPrecedent(string texte, int debutMot)
+    {
+        int position = debutMot;
+        while (position > 0 && char.IsWhiteSpace(texte[position - 1])) position--;   // saute les espaces
+        return DebutDuMot(texte, position);
+    }
+
+    private static int LongueurDuMot(string texte, int debut)
+    {
+        int fin = debut;
+        while (fin < texte.Length && !char.IsWhiteSpace(texte[fin])) fin++;
+        return fin - debut;
     }
 
     /// <summary>

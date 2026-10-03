@@ -23,13 +23,25 @@ public sealed class FenetrePrincipale : Form
     private readonly Label _barreEtat = new();
 
     // Minuteur de l'interface : toutes les 50 ms, on regarde où en est la voix
-    // pour mettre à jour les boutons. Il tourne sur le thread de l'interface,
+    // pour mettre à jour les boutons et le surlignage. Il tourne sur le thread de l'interface,
     // donc on peut toucher aux contrôles sans précaution particulière.
     private readonly System.Windows.Forms.Timer _minuteur = new() { Interval = 50 };
+
+    // Quand on fait glisser un curseur, sa valeur change plusieurs fois de suite.
+    // Plutôt que de relancer la voix à chaque cran, on attend 300 ms de calme
+    // (technique appelée « debounce » : on relance le compte à rebours à chaque changement).
+    private readonly System.Windows.Forms.Timer _minuteurRelance = new() { Interval = 300 };
 
     // La touche qui lit la sélection. null si elle n'a pas pu être réservée.
     private readonly RaccourciGlobal? _raccourci;
     private bool _captureEnCours;
+
+    // Mémoire pour MettreAJourEtat : état précédent et dernier mot surligné.
+    private bool _etaitOccupe;
+    private (int Debut, int Longueur)? _dernierMotSurligne;
+
+    // Endroit où le bouton de la souris a été enfoncé : sert à distinguer un clic d'un glisser.
+    private Point _pointAppuiSouris;
 
     // Message ponctuel affiché dans la barre d'état (erreur, « rien à lire »...),
     // prioritaire sur l'état normal jusqu'à son expiration.
@@ -61,6 +73,12 @@ public sealed class FenetrePrincipale : Form
 
         _minuteur.Tick += (_, _) => MettreAJourEtat();
         _minuteur.Start();
+
+        _minuteurRelance.Tick += (_, _) =>
+        {
+            _minuteurRelance.Stop();   // un seul déclenchement
+            Executer(_moteur.Relancer);
+        };
     }
 
     // ------------------------------------------------------------------ Construction
@@ -72,15 +90,21 @@ public sealed class FenetrePrincipale : Form
         _zoneTexte.ScrollBars = ScrollBars.Vertical;
         _zoneTexte.Dock = DockStyle.Fill;
         _zoneTexte.Font = new Font("Segoe UI", 13f);
-        _zoneTexte.PlaceholderText = "Colle ici le texte à lire (Ctrl+V), puis clique sur Lire.";
+        _zoneTexte.PlaceholderText = "Colle ici le texte à lire (Ctrl+V), puis clique sur Lire.\r\n"
+                                   + "Clique sur un mot pour commencer la lecture à cet endroit.";
         // Garder la sélection visible même quand la fenêtre n'a pas le focus :
-        // c'est elle qui surlignera le mot en cours de lecture.
+        // c'est elle qui surligne le mot en cours de lecture.
         _zoneTexte.HideSelection = false;
+        // Pendant la lecture, la zone passe en lecture seule (voir MettreAJourEtat) ;
+        // on force le fond blanc pour qu'elle ne devienne pas grise.
+        _zoneTexte.BackColor = SystemColors.Window;
+        _zoneTexte.MouseDown += (_, e) => _pointAppuiSouris = e.Location;
+        _zoneTexte.MouseUp += QuandClicDansTexte;
 
         // --- Boutons de lecture, alignés de gauche à droite.
         ConfigurerBouton(_boutonLire, "▶  Lire", (_, _) => LireZoneTexte());
-        ConfigurerBouton(_boutonPause, "⏸  Pause", (_, _) => _moteur.PauseOuReprise());
-        ConfigurerBouton(_boutonStop, "⏹  Stop", (_, _) => _moteur.Arreter());
+        ConfigurerBouton(_boutonPause, "⏸  Pause", (_, _) => Executer(_moteur.PauseOuReprise));
+        ConfigurerBouton(_boutonStop, "⏹  Stop", (_, _) => Executer(_moteur.Arreter));
         var rangeeBoutons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
         rangeeBoutons.Controls.AddRange([_boutonLire, _boutonPause, _boutonStop]);
 
@@ -164,9 +188,13 @@ public sealed class FenetrePrincipale : Form
         AppliquerVitesse();
         AppliquerTimbre();
 
-        _listeVoix.SelectedIndexChanged += (_, _) => _moteur.VoixActuelle = (string)_listeVoix.SelectedItem!;
-        _curseurVitesse.ValueChanged += (_, _) => AppliquerVitesse();
-        _curseurTimbre.ValueChanged += (_, _) => AppliquerTimbre();
+        _listeVoix.SelectedIndexChanged += (_, _) =>
+        {
+            _moteur.VoixActuelle = (string)_listeVoix.SelectedItem!;
+            DemanderRelance();
+        };
+        _curseurVitesse.ValueChanged += (_, _) => { AppliquerVitesse(); DemanderRelance(); };
+        _curseurTimbre.ValueChanged += (_, _) => { AppliquerTimbre(); DemanderRelance(); };
     }
 
     // ------------------------------------------------------------------ Réglages
@@ -184,6 +212,13 @@ public sealed class FenetrePrincipale : Form
         _valeurTimbre.Text = _curseurTimbre.Value.ToString("+0;-0;0");
     }
 
+    /// <summary>Applique les nouveaux réglages à la lecture en cours, après 300 ms sans changement.</summary>
+    private void DemanderRelance()
+    {
+        _minuteurRelance.Stop();
+        _minuteurRelance.Start();
+    }
+
     /// <summary>
     /// Traduit la vitesse SAPI en multiplicateur, d'après des mesures faites sur Denise :
     /// 3 → ×1,6 ; 5 → ×2 ; 10 → ×3 ; -5 → ×0,67. C'est approximatif pour les autres voix.
@@ -195,6 +230,10 @@ public sealed class FenetrePrincipale : Form
 
     // ------------------------------------------------------------------ Lecture
 
+    /// <summary>
+    /// Bouton Lire : lit la zone de texte à partir du curseur (là où l'utilisateur a cliqué).
+    /// Si le curseur est à la fin du texte (cas d'un texte qu'on vient de coller), on part du début.
+    /// </summary>
     private void LireZoneTexte()
     {
         string texte = _zoneTexte.Text;
@@ -203,20 +242,23 @@ public sealed class FenetrePrincipale : Form
             AfficherMessage("Rien à lire : colle d'abord un texte.");
             return;
         }
-        LireTexte(texte);
+        int depart = _zoneTexte.SelectionStart;
+        if (depart >= texte.TrimEnd().Length) depart = 0;
+        Executer(() => _moteur.Lire(texte, depart));
     }
 
-    private void LireTexte(string texte)
+    /// <summary>
+    /// Clic dans le texte pendant une lecture ou une pause : on saute au mot cliqué.
+    /// On ignore les glisser (sélection de texte) : la souris doit être relâchée là où elle a été enfoncée.
+    /// </summary>
+    private void QuandClicDansTexte(object? sender, MouseEventArgs e)
     {
-        try
-        {
-            _moteur.Lire(texte);
-        }
-        catch (COMException ex)
-        {
-            // Une erreur SAPI ne doit pas faire planter l'application : on l'affiche.
-            AfficherMessage($"Erreur de la voix : {ex.Message}", secondes: 10);
-        }
+        bool simpleClic = Math.Abs(e.X - _pointAppuiSouris.X) < 4 && Math.Abs(e.Y - _pointAppuiSouris.Y) < 4;
+        if (e.Button != MouseButtons.Left || !simpleClic || !_moteur.EstOccupe) return;
+
+        int position = _zoneTexte.GetCharIndexFromPosition(e.Location);
+        Executer(() => _moteur.AllerA(position));
+        _dernierMotSurligne = null;   // force le surlignage du nouveau mot
     }
 
     /// <summary>
@@ -230,7 +272,7 @@ public sealed class FenetrePrincipale : Form
     {
         if (_moteur.EstOccupe)
         {
-            _moteur.Arreter();
+            Executer(_moteur.Arreter);
             return;
         }
         if (_captureEnCours) return;   // appui répété pendant une copie : on ignore
@@ -246,11 +288,24 @@ public sealed class FenetrePrincipale : Form
             }
             // Le texte capturé s'affiche dans la fenêtre : on peut le relire ou le modifier ensuite.
             _zoneTexte.Text = texte;
-            LireTexte(texte);
+            Executer(() => _moteur.Lire(texte));
         }
         finally
         {
             _captureEnCours = false;
+        }
+    }
+
+    /// <summary>Exécute une commande de la voix ; une erreur SAPI s'affiche au lieu de faire planter l'application.</summary>
+    private void Executer(Action commande)
+    {
+        try
+        {
+            commande();
+        }
+        catch (COMException ex)
+        {
+            AfficherMessage($"Erreur de la voix : {ex.Message}", secondes: 10);
         }
     }
 
@@ -260,7 +315,9 @@ public sealed class FenetrePrincipale : Form
         _messageExpire = DateTime.Now.AddSeconds(secondes);
     }
 
-    /// <summary>Appelée par le minuteur : met les boutons en accord avec l'état de la voix.</summary>
+    // ------------------------------------------------------------------ Mise à jour régulière
+
+    /// <summary>Appelée par le minuteur : accorde l'interface avec l'état de la voix.</summary>
     private void MettreAJourEtat()
     {
         bool occupe = _moteur.EstOccupe;
@@ -269,18 +326,53 @@ public sealed class FenetrePrincipale : Form
         _boutonStop.Enabled = occupe;
         _boutonPause.Text = _moteur.EnPause ? "▶  Reprendre" : "⏸  Pause";
 
+        // Pendant la lecture, le texte ne doit pas être modifié (les positions des mots
+        // deviendraient fausses) : lecture seule. On peut quand même cliquer dedans.
+        if (_zoneTexte.ReadOnly != occupe) _zoneTexte.ReadOnly = occupe;
+
+        if (occupe)
+        {
+            SurlignerMotEnCours();
+        }
+        else if (_etaitOccupe)
+        {
+            // La lecture vient de finir (ou Stop) : on retire le surlignage
+            // et on replace le curseur au début pour la prochaine lecture.
+            _zoneTexte.Select(0, 0);
+            _dernierMotSurligne = null;
+        }
+        _etaitOccupe = occupe;
+
         string etat;
         if (_message != null && DateTime.Now < _messageExpire) etat = _message;
-        else if (occupe) etat = _moteur.EnPause ? "En pause." : "Lecture en cours…  (touche Pause = arrêter)";
+        else if (_moteur.EnPause) etat = "En pause. Clique sur un mot pour choisir où reprendre.";
+        else if (occupe) etat = "Lecture en cours…  (clic sur un mot = y sauter ; touche Pause = arrêter)";
         else etat = AideRaccourci;
 
         // On ne réaffecte le texte que s'il change, pour éviter un scintillement.
         if (_barreEtat.Text != etat) _barreEtat.Text = etat;
     }
 
+    /// <summary>Sélectionne (donc surligne) le mot prononcé, et fait défiler le texte pour le garder visible.</summary>
+    private void SurlignerMotEnCours()
+    {
+        // Pendant que l'utilisateur clique, on ne touche pas à la sélection pour ne pas le gêner.
+        if (MouseButtons != MouseButtons.None) return;
+
+        var mot = _moteur.MotEnCours();
+        if (mot == null || mot == _dernierMotSurligne) return;
+        _dernierMotSurligne = mot;
+
+        var (debut, longueur) = mot.Value;
+        if (debut + longueur > _zoneTexte.TextLength) return;   // sécurité
+        _zoneTexte.Select(debut, longueur);
+        _zoneTexte.ScrollToCaret();
+    }
+
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         _minuteur.Stop();
+        _minuteurRelance.Stop();
         _raccourci?.Dispose();
         _moteur.Dispose();
         base.OnFormClosed(e);
