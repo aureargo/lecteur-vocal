@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- WinExe = application fenêtrée : pas de console noire au lancement -->
+    <OutputType>WinExe</OutputType>
+    <!-- "-windows" donne accès aux API propres à Windows (WinForms, COM...) -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Interface nette sur les écrans à mise à l'échelle (125 %, 150 %...) -->
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <RootNamespace>LecteurVocal</RootNamespace>
+    <AssemblyName>LecteurVocal</AssemblyName>
+  </PropertyGroup>
+
+</Project>
