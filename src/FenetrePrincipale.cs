@@ -10,6 +10,19 @@ namespace LecteurVocal;
 public sealed class FenetrePrincipale : Form
 {
     private readonly MoteurVocal _moteur = new();
+    private readonly Reglages _reglages = Reglages.Charger();
+
+    // Icône dans la zone de notification (près de l'horloge), avec son menu clic droit.
+    private readonly NotifyIcon _iconeNotification = new();
+    private readonly ToolStripMenuItem _menuDemarrage = new("Lancer au démarrage de Windows");
+
+    // Signal envoyé par un second lancement du programme (voir Program.cs) pour afficher la fenêtre.
+    private readonly RegisteredWaitHandle _attenteSignal;
+
+    // false tant que la fenêtre doit rester cachée (lancement au démarrage de Windows).
+    private bool _affichageAutorise;
+    // true quand l'utilisateur choisit « Quitter » : fermer la fenêtre arrête alors vraiment l'appli.
+    private bool _quitter;
 
     private readonly TextBox _zoneTexte = new();
     private readonly Button _boutonLire = new();
@@ -50,15 +63,19 @@ public sealed class FenetrePrincipale : Form
 
     private const string AideRaccourci = "Sélectionne du texte n'importe où et appuie sur la touche Pause pour l'écouter.";
 
-    public FenetrePrincipale()
+    public FenetrePrincipale(EventWaitHandle signalAfficher, bool demarrerCache)
     {
         Text = "Lecteur vocal";
+        // Reprend l'icône intégrée au .exe (voir ApplicationIcon dans le .csproj).
+        Icon = Icon.ExtractAssociatedIcon(Environment.ProcessPath!);
         Size = new Size(760, 560);
         MinimumSize = new Size(520, 400);
         StartPosition = FormStartPosition.CenterScreen;
         Font = new Font("Segoe UI", 10f);
+        _affichageAutorise = !demarrerCache;
 
         ConstruireInterface();
+        CreerIconeNotification();
         RemplirReglages();
 
         try
@@ -69,6 +86,7 @@ public sealed class FenetrePrincipale : Form
         catch (System.ComponentModel.Win32Exception ex)
         {
             AfficherMessage(ex.Message, secondes: 30);
+            _iconeNotification.ShowBalloonTip(5000, "Lecteur vocal", ex.Message, ToolTipIcon.Warning);
         }
 
         _minuteur.Tick += (_, _) => MettreAJourEtat();
@@ -78,7 +96,16 @@ public sealed class FenetrePrincipale : Form
         {
             _minuteurRelance.Stop();   // un seul déclenchement
             Executer(_moteur.Relancer);
+            EnregistrerReglages();
         };
+
+        // Le ThreadPool surveille le signal sur un thread à part. Quand il arrive, on ne peut pas
+        // toucher à la fenêtre depuis ce thread : BeginInvoke confie Afficher au thread de l'interface.
+        // On force d'abord la création de la fenêtre Windows (Handle), nécessaire à BeginInvoke
+        // même quand la fenêtre démarre cachée.
+        _ = Handle;
+        _attenteSignal = ThreadPool.RegisterWaitForSingleObject(
+            signalAfficher, (_, _) => BeginInvoke(Afficher), null, Timeout.Infinite, executeOnlyOnce: false);
     }
 
     // ------------------------------------------------------------------ Construction
@@ -174,17 +201,44 @@ public sealed class FenetrePrincipale : Form
         }
     }
 
+    /// <summary>Crée l'icône près de l'horloge et son menu (clic droit).</summary>
+    private void CreerIconeNotification()
+    {
+        _menuDemarrage.Checked = DemarrageWindows.EstActive;
+        _menuDemarrage.Click += (_, _) =>
+        {
+            DemarrageWindows.Activer(!_menuDemarrage.Checked);
+            _menuDemarrage.Checked = DemarrageWindows.EstActive;
+        };
+
+        var menu = new ContextMenuStrip();
+        menu.Items.Add("Ouvrir", null, (_, _) => Afficher());
+        menu.Items.Add(_menuDemarrage);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Quitter", null, (_, _) => Quitter());
+
+        // Icône en petite taille (16×16 à 100 %, plus grand sur les écrans mis à l'échelle).
+        _iconeNotification.Icon = new Icon(Icon!, SystemInformation.SmallIconSize);
+        _iconeNotification.Text = "Lecteur vocal — touche Pause pour lire la sélection";
+        _iconeNotification.ContextMenuStrip = menu;
+        _iconeNotification.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) Afficher(); };
+        _iconeNotification.Visible = true;
+    }
+
     private void RemplirReglages()
     {
         foreach (string nom in _moteur.Voix) _listeVoix.Items.Add(nom);
 
-        // Voix par défaut : Denise si elle est installée, sinon la voix actuelle de Windows.
-        string? denise = _moteur.Voix.FirstOrDefault(v => v.Contains("Denise"));
-        _listeVoix.SelectedItem = denise ?? _moteur.VoixActuelle;
-        _moteur.VoixActuelle = (string)_listeVoix.SelectedItem!;
+        // Voix : celle mémorisée si elle existe encore, sinon Denise, sinon la voix actuelle de Windows.
+        string? voix = _moteur.Voix.FirstOrDefault(v => v == _reglages.Voix)
+                       ?? _moteur.Voix.FirstOrDefault(v => v.Contains("Denise"))
+                       ?? _moteur.VoixActuelle;
+        _listeVoix.SelectedItem = voix;
+        _moteur.VoixActuelle = voix;
 
-        _curseurVitesse.Value = 3;   // ≈ ×1,6
-        _curseurTimbre.Value = 0;
+        // Clamp : au cas où le fichier contiendrait une valeur hors des limites du curseur.
+        _curseurVitesse.Value = Math.Clamp(_reglages.Vitesse, _curseurVitesse.Minimum, _curseurVitesse.Maximum);
+        _curseurTimbre.Value = Math.Clamp(_reglages.Timbre, _curseurTimbre.Minimum, _curseurTimbre.Maximum);
         AppliquerVitesse();
         AppliquerTimbre();
 
@@ -212,11 +266,22 @@ public sealed class FenetrePrincipale : Form
         _valeurTimbre.Text = _curseurTimbre.Value.ToString("+0;-0;0");
     }
 
-    /// <summary>Applique les nouveaux réglages à la lecture en cours, après 300 ms sans changement.</summary>
+    /// <summary>
+    /// Applique les nouveaux réglages à la lecture en cours et les enregistre,
+    /// après 300 ms sans changement.
+    /// </summary>
     private void DemanderRelance()
     {
         _minuteurRelance.Stop();
         _minuteurRelance.Start();
+    }
+
+    private void EnregistrerReglages()
+    {
+        _reglages.Voix = _moteur.VoixActuelle;
+        _reglages.Vitesse = _curseurVitesse.Value;
+        _reglages.Timbre = _curseurTimbre.Value;
+        _reglages.Enregistrer();
     }
 
     /// <summary>
@@ -284,6 +349,8 @@ public sealed class FenetrePrincipale : Form
             if (string.IsNullOrWhiteSpace(texte))
             {
                 AfficherMessage("Aucun texte sélectionné.");
+                // Fenêtre cachée : le message serait invisible, on prévient par un petit son.
+                if (!Visible) System.Media.SystemSounds.Asterisk.Play();
                 return;
             }
             // Le texte capturé s'affiche dans la fenêtre : on peut le relire ou le modifier ensuite.
@@ -369,10 +436,64 @@ public sealed class FenetrePrincipale : Form
         _zoneTexte.ScrollToCaret();
     }
 
+    // ------------------------------------------------------------------ Affichage et fermeture
+
+    /// <summary>Fait réapparaître la fenêtre (depuis l'icône, ou quand on relance le programme).</summary>
+    private void Afficher()
+    {
+        _affichageAutorise = true;
+        Show();
+        if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+        Activate();
+    }
+
+    private void Quitter()
+    {
+        _quitter = true;
+        Close();
+    }
+
+    /// <summary>
+    /// Windows appelle SetVisibleCore pour afficher ou masquer la fenêtre, y compris au tout
+    /// premier affichage lancé par Application.Run. En le surchargeant, on peut démarrer caché.
+    /// </summary>
+    protected override void SetVisibleCore(bool visible)
+    {
+        base.SetVisibleCore(visible && _affichageAutorise);
+    }
+
+    /// <summary>
+    /// Clic sur la croix : on cache la fenêtre au lieu de quitter, pour que la touche Pause
+    /// continue de fonctionner. On quitte vraiment via « Quitter » dans le menu de l'icône,
+    /// ou quand Windows s'éteint.
+    /// </summary>
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        if (e.CloseReason == CloseReason.UserClosing && !_quitter)
+        {
+            e.Cancel = true;
+            Hide();
+            if (!_reglages.ReductionDejaExpliquee)
+            {
+                _iconeNotification.ShowBalloonTip(6000, "Le Lecteur vocal reste actif",
+                    "La touche Pause fonctionne toujours. Clic sur cette icône pour rouvrir la fenêtre, "
+                    + "clic droit → Quitter pour l'arrêter.", ToolTipIcon.Info);
+                _reglages.ReductionDejaExpliquee = true;
+                _reglages.Enregistrer();
+            }
+        }
+        base.OnFormClosing(e);
+    }
+
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         _minuteur.Stop();
         _minuteurRelance.Stop();
+        _attenteSignal.Unregister(null);
+        EnregistrerReglages();
+        // Sans ça, l'icône resterait affichée près de l'horloge jusqu'au survol de la souris.
+        _iconeNotification.Visible = false;
+        _iconeNotification.Dispose();
         _raccourci?.Dispose();
         _moteur.Dispose();
         base.OnFormClosed(e);

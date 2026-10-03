@@ -12,6 +12,8 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <RootNamespace>LecteurVocal</RootNamespace>
     <AssemblyName>LecteurVocal</AssemblyName>
+    <!-- Icône intégrée au .exe : visible dans l'explorateur, le menu Démarrer et la barre des tâches -->
+    <ApplicationIcon>icone.ico</ApplicationIcon>
   </PropertyGroup>
 
 </Project>
