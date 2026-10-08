@@ -26,7 +26,7 @@ Un Ctrl+C normal ne déclenche **jamais** de lecture.
 
 ## Prérequis
 
-- Windows 11, SDK .NET 10.
+- Windows 11, SDK .NET 10 (`installer.cmd` propose de l'installer via winget s'il manque).
 - Voix Denise / Henri rendues accessibles par [NaturalVoiceSAPIAdapter](https://github.com/gexgd0419/NaturalVoiceSAPIAdapter)
   (anciennes versions des voix, dépaquetées dans `C:\Voix`). Les voix « HD » ne fonctionnent pas.
 
