@@ -32,6 +32,8 @@ Un Ctrl+C normal ne déclenche **jamais** de lecture.
 
 ## Code
 
+Documentation développeur (architecture, pièges, tests manuels) : [`docs/`](docs/README.md).
+
 | Fichier | Rôle |
 |---|---|
 | `src/Program.cs` | Démarrage, instance unique |
