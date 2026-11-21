@@ -314,14 +314,19 @@ public sealed class FenetrePrincipale : Form
         _reglages.Enregistrer();
     }
 
-    /// <summary>
-    /// Traduit la vitesse SAPI en multiplicateur, d'après des mesures faites sur Denise :
-    /// 3 → ×1,6 ; 5 → ×2 ; 10 → ×3 ; -5 → ×0,67. C'est approximatif pour les autres voix.
-    /// </summary>
-    private static string LibelleVitesse(int vitesse) =>
-        vitesse >= 0
-            ? $"≈ ×{1 + vitesse / 5.0:0.0}"
-            : $"≈ ×{1 / (1 - vitesse / 10.0):0.00}";
+    // Vitesse réelle de Denise pour chaque cran SAPI, de -5 à 10 (durées mesurées d'un même texte
+    // rendu dans un fichier wav). SAPI n'accepte que ces crans entiers, quelle que soit la
+    // façon de demander la vitesse (propriété Rate, balise <rate>, SSML <prosody>) : un
+    // multiplicateur comme ×1,25 ou ×1,5 est arrondi à un de ces crans.
+    private static readonly double[] MultiplicateursVitesse =
+        [0.67, 0.74, 0.80, 0.87, 0.94, 1.00, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4, 2.6, 2.8, 3.0];
+
+    /// <summary>Multiplicateur mesuré pour un cran SAPI. C'est approximatif pour les autres voix.</summary>
+    private static string LibelleVitesse(int vitesse)
+    {
+        int index = Math.Clamp(vitesse + 5, 0, MultiplicateursVitesse.Length - 1);
+        return $"≈ ×{MultiplicateursVitesse[index]:0.0#}";
+    }
 
     // ------------------------------------------------------------------ Lecture
 
