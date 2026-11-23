@@ -127,7 +127,7 @@ Démarrage caché : `SetVisibleCore` est surchargé et refuse d'afficher tant qu
   "Voix": "<nom de la voix tel que renvoyé par SAPI>",
   "Vitesse": 3,
   "Timbre": 0,
-  "Raccourci": "Pause",
+  "Raccourci": "OemBackslash, Shift, Control",
   "ReductionDejaExpliquee": true
 }
 ```
@@ -137,7 +137,7 @@ Démarrage caché : `SetVisibleCore` est surchargé et refuse d'afficher tant qu
 | `Voix` | `null` | Ignorée si la voix n'existe plus |
 | `Vitesse` | `3` (≈ ×1,6) | Cran SAPI ; l'UI le borne à [-5, 10] |
 | `Timbre` | `0` | [-10, 10] |
-| `Raccourci` | `Pause` | Enum `Keys` en texte, ex. `"L, Control, Alt"` |
+| `Raccourci` | `Reglages.RaccourciParDefaut` = Ctrl + Maj + `OemBackslash` (touche `< >`) | Enum `Keys` en texte, ex. `"L, Control, Alt"` |
 | `ReductionDejaExpliquee` | `false` | Bulle « l'appli reste active » déjà montrée |
 
 Fichier absent ou illisible → valeurs par défaut, sans erreur. Écriture impossible → ignorée silencieusement.

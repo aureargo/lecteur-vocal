@@ -8,7 +8,7 @@ internal static class Program
     [STAThread]
     private static void Main(string[] arguments)
     {
-        // Une seule instance à la fois : deux exemplaires se disputeraient la touche Pause.
+        // Une seule instance à la fois : deux exemplaires se disputeraient la touche de lecture.
         // Un Mutex nommé est visible par tout le système : le second lancement voit
         // qu'il existe déjà.
         using var mutex = new Mutex(true, "LecteurVocal-InstanceUnique", out bool premiereInstance);

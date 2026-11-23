@@ -32,7 +32,7 @@ dotnet run
 
 ### Pour un agent IA
 
-**Ne pas lancer l'application soi-même** (`dotnet run`, exécution de l'exe, `installer.cmd`) : elle ouvre une fenêtre, prend le focus, réserve la touche Pause globale et simule des Ctrl+C. Le propriétaire utilise le PC en même temps. Compiler avec `dotnet build`, puis demander à l'utilisateur de tester.
+**Ne pas lancer l'application soi-même** (`dotnet run`, exécution de l'exe, `installer.cmd`) : elle ouvre une fenêtre, prend le focus, réserve le raccourci global et simule des Ctrl+C. Le propriétaire utilise le PC en même temps. Compiler avec `dotnet build`, puis demander à l'utilisateur de tester.
 
 ## installer.cmd
 
@@ -95,12 +95,12 @@ Pas de tests automatisés. Checklist à dérouler après une modification, sur l
 
 | # | Scénario | Attendu |
 |---|---|---|
-| 1 | Sélectionner du texte dans un navigateur + Pause | Lecture, texte copié dans la fenêtre |
-| 2 | Pause pendant la lecture | Arrêt |
+| 1 | Sélectionner du texte dans un navigateur + raccourci (Ctrl + Maj + `< >`) | Lecture, texte copié dans la fenêtre |
+| 2 | Raccourci pendant la lecture | Arrêt |
 | 3 | Ctrl+C manuel | **Aucune** lecture |
 | 4 | Copier une image, puis lire une sélection, puis Ctrl+V | L'image est toujours là |
 | 5 | Win+V après une lecture | L'ancien contenu n'apparaît pas une 2e fois |
-| 6 | Pause sans sélection | Message « Aucun texte sélectionné » (son si fenêtre cachée) |
+| 6 | Raccourci sans sélection | Message « Aucun texte sélectionné » (son si fenêtre cachée) |
 | 7 | Coller un texte + Lire | Lit depuis le début |
 | 8 | Cliquer au milieu + Lire | Lit depuis ce mot |
 | 9 | Clic sur un mot pendant la lecture / en pause | Saut immédiat / reprise à ce mot |

@@ -23,6 +23,7 @@ public static class NomsTouches
         Keys.Space => "Espace",
         Keys.Return => "Entrée",
         Keys.Insert => "Inser",
+        Keys.OemBackslash => "< / >",   // touche « <> » des claviers à 102 touches (AZERTY)
         >= Keys.D0 and <= Keys.D9 => ((int)(touche - Keys.D0)).ToString(),
         >= Keys.NumPad0 and <= Keys.NumPad9 => "Pavé " + (int)(touche - Keys.NumPad0),
         _ => touche.ToString(),

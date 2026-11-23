@@ -1,7 +1,7 @@
 # Lecteur vocal
 
 Application Windows 11 (C# 14 / .NET 10, WinForms, SAPI 5) qui lit à voix haute le texte
-sélectionné dans n'importe quel logiciel quand on appuie sur une touche (Pause par défaut).
+sélectionné dans n'importe quel logiciel quand on appuie sur une touche (Ctrl + Maj + `< >` par défaut).
 
 La documentation développeur est dans [docs/](docs/README.md). La lire avant de modifier le code,
 en commençant par [docs/README.md](docs/README.md). Le [README.md](README.md) racine est la doc utilisateur.

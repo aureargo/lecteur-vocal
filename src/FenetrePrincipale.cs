@@ -67,7 +67,7 @@ public sealed class FenetrePrincipale : Form
     private string? _message;
     private DateTime _messageExpire;
 
-    /// <summary>Nom lisible du raccourci actuel, par exemple « Pause » ou « Ctrl + Alt + L ».</summary>
+    /// <summary>Nom lisible du raccourci actuel, par exemple « Ctrl + Maj + < / > » ou « Ctrl + Alt + L ».</summary>
     private string NomRaccourci => NomsTouches.Decrire(_reglages.Raccourci);
 
     public FenetrePrincipale(EventWaitHandle signalAfficher, bool demarrerCache)
@@ -678,7 +678,7 @@ public sealed class FenetrePrincipale : Form
     }
 
     /// <summary>
-    /// Clic sur la croix : on cache la fenêtre au lieu de quitter, pour que la touche Pause
+    /// Clic sur la croix : on cache la fenêtre au lieu de quitter, pour que la touche de lecture
     /// continue de fonctionner. On quitte vraiment via « Quitter » dans le menu de l'icône,
     /// ou quand Windows s'éteint.
     /// </summary>

@@ -6,7 +6,7 @@ Pour reprendre le projet. Le [README racine](../README.md) est la doc **utilisat
 
 | | |
 |---|---|
-| **Ce que ça fait** | Lit à voix haute, hors ligne, le texte sélectionné dans n'importe quel logiciel (touche **Pause**) ou collé dans la fenêtre |
+| **Ce que ça fait** | Lit à voix haute, hors ligne, le texte sélectionné dans n'importe quel logiciel (raccourci **Ctrl + Maj + < / >** par défaut) ou collé dans la fenêtre |
 | **Pourquoi** | Remplacer Balabolka, qui lisait *chaque* copier-coller. Ici, seule la touche déclenche une lecture |
 | **Techno** | C# 14 / .NET 10, WinForms, SAPI 5 (COM), P/Invoke `user32.dll` |
 | **Voix visées** | Microsoft Denise / Henri (neuronales, locales), exposées à SAPI par [NaturalVoiceSAPIAdapter](https://github.com/gexgd0419/NaturalVoiceSAPIAdapter) |

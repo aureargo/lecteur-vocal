@@ -66,6 +66,8 @@ Règle `NomsTouches.EstAcceptable` :
 | Pause, Arrêt défil, F1–F24 seules (ou + Maj) | ✅ |
 | Lettre, chiffre, Espace… seuls | ❌ empêcherait d'écrire |
 
+Raccourci par défaut : Ctrl + Maj + `Keys.OemBackslash` (`VK_OEM_102`), la touche `< >` des claviers à 102 touches. On enregistre la touche physique, pas le caractère : Maj (qui fait sortir `>`) n'a aucune incidence. Cette touche n'existe pas sur un clavier américain à 101 touches : le raccourci y serait inopérant, il faut alors en choisir un autre (Configuration → Touche de lecture).
+
 Piège : avec Ctrl enfoncé, le clavier envoie `Keys.Cancel` au lieu de `Keys.Pause`. `NomsTouches` traite les deux comme « Pause ».
 
 ## Instance unique

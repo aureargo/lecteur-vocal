@@ -50,7 +50,7 @@ if errorlevel 1 (
 )
 
 echo Création du raccourci dans le menu Démarrer...
-powershell -NoProfile -Command "$r = (New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Programs') + '\Lecteur vocal.lnk'); $r.TargetPath = '%DESTINATION%\LecteurVocal.exe'; $r.Description = 'Lecture à voix haute du texte sélectionné (touche Pause)'; $r.Save()"
+powershell -NoProfile -Command "$r = (New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Programs') + '\Lecteur vocal.lnk'); $r.TargetPath = '%DESTINATION%\LecteurVocal.exe'; $r.Description = 'Lecture à voix haute du texte sélectionné (raccourci clavier configurable)'; $r.Save()"
 
 rem  Si le lancement au démarrage de Windows est activé, on le fait pointer vers la version installée.
 reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v LecteurVocal > nul 2>&1 && ^

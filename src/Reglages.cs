@@ -19,7 +19,13 @@ public sealed class Reglages
     /// plutôt qu'en nombre, pour rester lisible dans le fichier JSON.
     /// </summary>
     [JsonConverter(typeof(JsonStringEnumConverter<Keys>))]
-    public Keys Raccourci { get; set; } = Keys.Pause;
+    public Keys Raccourci { get; set; } = RaccourciParDefaut;
+
+    /// <summary>
+    /// Ctrl + Maj + la touche « &lt; &gt; » (à gauche de W sur un clavier AZERTY). C'est une seule
+    /// touche physique : on enregistre la touche, pas le caractère, donc Maj ne change rien.
+    /// </summary>
+    public const Keys RaccourciParDefaut = Keys.Control | Keys.Shift | Keys.OemBackslash;
 
     /// <summary>Vrai une fois qu'on a expliqué que fermer la fenêtre laisse l'appli active.</summary>
     public bool ReductionDejaExpliquee { get; set; }

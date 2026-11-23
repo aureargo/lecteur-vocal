@@ -15,6 +15,7 @@
 | 2026-10-03 | Installation par compilation locale (`installer.cmd`) | Usage personnel, pas de distribution | Installeur MSI, binaire publié |
 | 2026-10-09 | `installer.cmd` propose le SDK via winget | Éviter l'échec muet sur un PC neuf | — |
 | 2026-10-10 | Libellé de vitesse issu d'une **table mesurée** cran par cran | L'ancienne formule s'écartait des mesures pour les crans négatifs | Formules `1 + cran/5` et `1 / (1 − cran/10)` |
+| 2026-11-23 | Raccourci par défaut = **Ctrl + Maj + touche `< >`** (`OemBackslash`), au lieu de Pause | C'est la combinaison que l'utilisateur utilisait déjà ; une touche physique, donc Maj ne change pas le résultat | Pause (absente de beaucoup de claviers portables) |
 
 ## Pièges — ne pas « corriger » sans savoir
 

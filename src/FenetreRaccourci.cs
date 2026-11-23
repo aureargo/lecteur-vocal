@@ -46,15 +46,15 @@ public sealed class FenetreRaccourci : Form
         _avertissement.MaximumSize = new Size(380, 0);   // retour à la ligne automatique
         _avertissement.ForeColor = Color.Firebrick;
 
-        var boutonPause = new Button { Text = "Remettre « Pause »", AutoSize = true };
-        boutonPause.Click += (_, _) => Proposer(Keys.Pause);
+        var boutonDefaut = new Button { Text = $"Remettre « {NomsTouches.Decrire(Reglages.RaccourciParDefaut)} »", AutoSize = true };
+        boutonDefaut.Click += (_, _) => Proposer(Reglages.RaccourciParDefaut);
         var boutonAnnuler = new Button { Text = "Annuler", AutoSize = true, DialogResult = DialogResult.Cancel };
         _boutonOk.Text = "OK";
         _boutonOk.AutoSize = true;
         _boutonOk.DialogResult = DialogResult.OK;   // cliquer ferme la fenêtre avec ce résultat
 
         var boutons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill };
-        boutons.Controls.AddRange([_boutonOk, boutonAnnuler, boutonPause]);
+        boutons.Controls.AddRange([_boutonOk, boutonAnnuler, boutonDefaut]);
 
         var disposition = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, Dock = DockStyle.Fill };
         disposition.Controls.AddRange([consigne, _saisie, _avertissement, boutons]);

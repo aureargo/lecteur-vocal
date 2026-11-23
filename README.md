@@ -10,8 +10,8 @@ Double-clic sur **`installer.cmd`**. Ensuite, l'appli est dans le **menu Démarr
 
 | Action | Effet |
 |---|---|
-| Sélectionner du texte n'importe où + touche **Pause** (modifiable) | Lit la sélection |
-| Touche **Pause** pendant la lecture | Arrête |
+| Sélectionner du texte n'importe où + **Ctrl + Maj + < / >** (touche à gauche de W ; modifiable) | Lit la sélection |
+| Même raccourci pendant la lecture | Arrête |
 | Coller un texte dans la fenêtre + **▶ Lire** | Lit à partir du curseur |
 | Clic sur un mot (lecture ou pause) | Saute à ce mot |
 | **Pause / Reprendre** | Reprend au mot précédent |
@@ -40,7 +40,7 @@ Documentation développeur (architecture, pièges, tests manuels) : [`docs/`](do
 | `src/FenetrePrincipale.cs` | Fenêtre, icône près de l'horloge |
 | `src/MoteurVocal.cs` | Pilotage de SAPI (voix, position de lecture) |
 | `src/LecteurSelection.cs` | Capture de la sélection via le presse-papiers |
-| `src/RaccourciGlobal.cs` | Touche Pause globale |
+| `src/RaccourciGlobal.cs` | Raccourci clavier global |
 | `src/Reglages.cs` | Réglages mémorisés (`%AppData%\LecteurVocal\reglages.json`) |
 | `src/DemarrageWindows.cs` | Lancement à l'ouverture de session |
 | `src/FenetreRaccourci.cs`, `src/NomsTouches.cs` | Choix de la touche de lecture |
