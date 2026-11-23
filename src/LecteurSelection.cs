@@ -75,13 +75,14 @@ public static class LecteurSelection
         return texte;
     }
 
+    /// <summary>Vrai si Maj, Ctrl, Alt ou Windows est enfoncée en ce moment.</summary>
+    private static bool ModificateurEnfonce() =>
+        new[] { VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN }.Any(t => GetAsyncKeyState(t) < 0);
+
     /// <summary>
     /// Envoie Ctrl+C à la fenêtre au premier plan : Ctrl enfoncé, C enfoncé, C relâché, Ctrl relâché.
     /// (SendKeys.SendWait("^c") de WinForms ne passait pas de façon fiable vers les autres programmes.)
     /// </summary>
-    private static bool ModificateurEnfonce() =>
-        new[] { VK_SHIFT, VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN }.Any(t => GetAsyncKeyState(t) < 0);
-
     private static void SimulerCtrlC()
     {
         keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);

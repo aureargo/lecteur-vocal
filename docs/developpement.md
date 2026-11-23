@@ -115,3 +115,7 @@ Pas de tests automatisés. Checklist à dérouler après une modification, sur l
 | 18 | Ouvrir un `.txt` ANSI avec accents | Accents corrects |
 | 19 | Aide → Écouter le guide, puis fermer | Lecture sans surlignage, arrêt à la fermeture |
 | 20 | Fermer via Quitter, relancer | Voix, vitesse, timbre, touche mémorisés |
+| 21 | Coller un texte de plus de 32 767 caractères | Collé en entier |
+| 22 | Texte de plus de 65 535 caractères : clic sur un mot vers la fin, pendant la lecture | Saut à ce mot |
+| 23 | Ouvrir un `.txt` UTF-16 (ex. `"Été" > test.txt` dans Windows PowerShell 5) | Texte correct |
+| 24 | Touche de lecture prise par un autre programme au lancement | Barre d'état et info-bulle : aucune touche active |

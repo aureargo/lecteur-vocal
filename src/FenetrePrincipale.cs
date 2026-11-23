@@ -124,6 +124,9 @@ public sealed class FenetrePrincipale : Form
         // Garder la sélection visible même quand la fenêtre n'a pas le focus :
         // c'est elle qui surligne le mot en cours de lecture.
         _zoneTexte.HideSelection = false;
+        // Par défaut, Windows tronque sans prévenir un collage au-delà de 32 767 caractères.
+        // 0 = pas de limite.
+        _zoneTexte.MaxLength = 0;
         // Pendant la lecture, la zone passe en lecture seule (voir MettreAJourEtat) ;
         // on force le fond blanc pour qu'elle ne devienne pas grise.
         _zoneTexte.BackColor = SystemColors.Window;
@@ -382,7 +385,9 @@ public sealed class FenetrePrincipale : Form
         bool simpleClic = Math.Abs(e.X - _pointAppuiSouris.X) < 4 && Math.Abs(e.Y - _pointAppuiSouris.Y) < 4;
         if (e.Button != MouseButtons.Left || !simpleClic || !_moteur.EstOccupe || !_lectureDeLaZone) return;
 
-        int position = _zoneTexte.GetCharIndexFromPosition(e.Location);
+        // Le clic vient de poser le curseur sur le mot. GetCharIndexFromPosition serait faux
+        // au-delà du 65 535e caractère (message Windows limité à 16 bits).
+        int position = _zoneTexte.SelectionStart;
         Executer(() => _moteur.AllerA(position));
         _dernierMotSurligne = null;   // force le surlignage du nouveau mot
     }
@@ -476,6 +481,7 @@ public sealed class FenetrePrincipale : Form
         if (_message != null && DateTime.Now < _messageExpire) etat = _message;
         else if (_moteur.EnPause) etat = "En pause. Espace = reprendre ; clic sur un mot = reprendre à cet endroit.";
         else if (occupe) etat = $"Lecture en cours…  Espace = pause ; clic sur un mot = y sauter ; {NomRaccourci} = arrêter.";
+        else if (_raccourci == null) etat = "Aucune touche de lecture active : menu Configuration → Touche de lecture.";
         else etat = $"Sélectionne du texte n'importe où et appuie sur {NomRaccourci} pour l'écouter.";
 
         // On ne réaffecte le texte que s'il change, pour éviter un scintillement.
@@ -518,6 +524,7 @@ public sealed class FenetrePrincipale : Form
         }
         catch (System.ComponentModel.Win32Exception ex)
         {
+            _iconeNotification.Text = "Lecteur vocal — aucune touche de lecture active";
             erreur = ex.Message;
             return false;
         }
@@ -534,18 +541,19 @@ public sealed class FenetrePrincipale : Form
         // using : la fenêtre de dialogue est libérée (Dispose) à la fin du bloc.
         using var fenetre = new FenetreRaccourci(ancien);
         Keys choisi = fenetre.ShowDialog(this) == DialogResult.OK ? fenetre.Combinaison : ancien;
+        if (IsDisposed) return;   // « Quitter » cliqué dans l'icône pendant le dialogue
 
         if (ActiverRaccourci(choisi, out string? erreur))
         {
             _reglages.Raccourci = choisi;
             _reglages.Enregistrer();
+            return;
         }
-        else
-        {
-            MessageBox.Show(this, erreur + "\r\nL'ancien raccourci est conservé.", "Touche de lecture",
-                            MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            ActiverRaccourci(ancien, out _);
-        }
+        // Échec : on remet l'ancien raccourci, s'il est différent et encore libre.
+        bool ancienRetabli = choisi != ancien && ActiverRaccourci(ancien, out _);
+        MessageBox.Show(this,
+            erreur + (ancienRetabli ? "\r\nL'ancien raccourci est conservé." : "\r\nAucune touche de lecture n'est active."),
+            "Touche de lecture", MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 
     // ------------------------------------------------------------------ Fichiers
@@ -572,19 +580,22 @@ public sealed class FenetrePrincipale : Form
     }
 
     /// <summary>
-    /// Lit un fichier texte en devinant son encodage. Les fichiers récents sont en UTF-8 ;
-    /// les anciens fichiers Windows sont souvent en « Windows-1252 » (les accents seraient
-    /// abîmés si on les lisait en UTF-8). On essaie UTF-8 en mode strict, et on se rabat sur
-    /// Windows-1252 si le contenu n'est pas de l'UTF-8 valide.
+    /// Lit un fichier texte en devinant son encodage. Une « BOM » (marque en tête de fichier)
+    /// le donne sans ambiguïté : UTF-8, ou UTF-16 (Bloc-notes, redirection « > » de PowerShell 5).
+    /// Sans BOM, les fichiers récents sont en UTF-8 et les anciens fichiers Windows souvent en
+    /// « Windows-1252 » : on essaie UTF-8 en mode strict, et on se rabat sur Windows-1252 si le
+    /// contenu n'est pas de l'UTF-8 valide.
     /// </summary>
     private static string LireFichierTexte(string chemin)
     {
         byte[] octets = File.ReadAllBytes(chemin);
         try
         {
+            // detectEncodingFromByteOrderMarks : reconnaît et retire la BOM éventuelle.
             // throwOnInvalidBytes: true → exception au premier octet qui n'est pas de l'UTF-8 valide.
-            string texte = new System.Text.UTF8Encoding(false, throwOnInvalidBytes: true).GetString(octets);
-            return texte.TrimStart('﻿').ReplaceLineEndings("\r\n");   // retire l'éventuelle « BOM »
+            using var lecteur = new StreamReader(new MemoryStream(octets),
+                new System.Text.UTF8Encoding(false, throwOnInvalidBytes: true), detectEncodingFromByteOrderMarks: true);
+            return lecteur.ReadToEnd().ReplaceLineEndings("\r\n");
         }
         catch (System.Text.DecoderFallbackException)
         {
@@ -623,6 +634,8 @@ public sealed class FenetrePrincipale : Form
     {
         using var fenetre = new FenetreAideVoix(LireTexteExterne);
         fenetre.ShowDialog(this);
+        // « Quitter » cliqué dans l'icône pendant le guide : la voix est déjà libérée.
+        if (IsDisposed) return;
         // Fermer le guide arrête sa lecture (mais pas celle de la zone de texte).
         if (!_lectureDeLaZone) Executer(_moteur.Arreter);
     }

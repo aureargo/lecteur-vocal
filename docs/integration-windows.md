@@ -54,7 +54,7 @@ Séquence dans `FenetrePrincipale.ChoisirRaccourci` :
 
 1. **Libérer** le raccourci actuel (sinon Windows l'intercepte et le dialogue ne reçoit jamais la touche).
 2. Dialogue modal ; `PreviewKeyDown → IsInputKey = true` pour recevoir aussi Tab, flèches, Entrée. Échap = annuler.
-3. Réserver la nouvelle combinaison. Échec → message, **ancien raccourci restauré**.
+3. Réserver la nouvelle combinaison. Échec → **ancien raccourci restauré** s'il est différent et encore libre ; le message dit s'il l'est ou si aucune touche n'est active.
 4. Enregistrer dans les réglages.
 
 Règle `NomsTouches.EstAcceptable` :
@@ -103,7 +103,7 @@ Dans `FenetrePrincipale` :
 
 | Action | Encodage |
 |---|---|
-| Ouvrir (`LireFichierTexte`) | UTF-8 **strict** ; si invalide → Windows-1252 (fournisseur `CodePagesEncodingProvider` activé à la demande). BOM retirée, fins de ligne normalisées en `\r\n` |
+| Ouvrir (`LireFichierTexte`) | BOM reconnue et retirée (UTF-8, UTF-16 LE/BE) ; sans BOM, UTF-8 **strict** ; si invalide → Windows-1252 (fournisseur `CodePagesEncodingProvider` activé à la demande). Fins de ligne normalisées en `\r\n` |
 | Enregistrer | UTF-8 sans BOM (`File.WriteAllText`) |
 
 Filtre : `*.txt;*.md`, ou tous les fichiers. Ouvrir un fichier arrête la lecture en cours.

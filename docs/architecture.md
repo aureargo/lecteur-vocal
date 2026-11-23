@@ -66,7 +66,7 @@ Lit la zone à partir du curseur (`SelectionStart`). Si le curseur est en fin de
 | Action | Code | Effet moteur |
 |---|---|---|
 | Bouton Pause / **Espace** | `PauseOuReprise()` | Pause : retient le mot précédent ; Reprise : relance depuis là |
-| Clic simple sur un mot (< 4 px de déplacement) | `AllerA(position)` | Lecture : relance au mot ; Pause : change le point de reprise |
+| Clic simple sur un mot (< 4 px de déplacement) | `AllerA(SelectionStart)` (curseur posé par le clic) | Lecture : relance au mot ; Pause : change le point de reprise |
 | Curseur vitesse/timbre, liste des voix | debounce 300 ms → `Relancer()` | Relance depuis le mot en cours |
 | Bouton Stop / touche de lecture | `Arreter()` | Coupe SAPI, oublie la reprise |
 
@@ -95,7 +95,7 @@ Constructeur de `FenetrePrincipale`, dans l'ordre :
 1. `ConstruireInterface()` — tout en code, pas de designer. Ordre d'ajout important avec `Dock` : le `Fill` d'abord.
 2. `CreerIconeNotification()`.
 3. `RemplirReglages()` — voix mémorisée → sinon une voix contenant « Denise » → sinon voix Windows par défaut. Les événements des contrôles sont branchés **après** le remplissage.
-4. `ActiverRaccourci()` — en cas d'échec (touche déjà prise) : message + bulle, l'appli continue sans raccourci.
+4. `ActiverRaccourci()` — en cas d'échec (touche déjà prise) : message + bulle, l'appli continue sans raccourci ; la barre d'état et l'info-bulle de l'icône l'indiquent.
 5. Démarrage des minuteurs, puis `_ = Handle` (force la création du handle même caché, requis par `BeginInvoke`) et enregistrement de l'attente du signal.
 
 Démarrage caché : `SetVisibleCore` est surchargé et refuse d'afficher tant que `_affichageAutorise` est faux. `Afficher()` le passe à vrai.

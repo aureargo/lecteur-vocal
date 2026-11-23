@@ -38,6 +38,8 @@ Chaque ligne décrit un comportement qui semble étrange mais qui est voulu.
 | Retirer `[STAThread]` | Presse-papiers et SAPI lèvent des exceptions |
 | Retirer `_ = Handle` dans le constructeur | `BeginInvoke` échoue si l'appli a démarré cachée |
 | Laisser la zone de texte modifiable pendant la lecture | Les positions de mots deviendraient fausses |
+| Retirer `MaxLength = 0` de la zone de texte | Ctrl+V tronqué sans prévenir à 32 767 caractères (défaut WinForms) |
+| Trouver le mot cliqué avec `GetCharIndexFromPosition` | Bloqué à 65 535 (message Windows `EM_CHARFROMPOS` sur 16 bits). On lit `SelectionStart`, que le clic vient de poser |
 | Ne traiter que `Keys.Pause` | Avec Ctrl, le clavier envoie `Keys.Cancel` |
 | Laisser l'icône de notification sans `Visible = false` à la fermeture | Elle reste affichée jusqu'au survol |
 
@@ -58,7 +60,6 @@ Chaque ligne décrit un comportement qui semble étrange mais qui est voulu.
 | Sujet | Détail | Priorité suggérée |
 |---|---|---|
 | Aucun test automatisé | La logique pure est testable : `EchapperPourXml`, `DebutDuMot`, `DebutDuMotPrecedent`, `NomsTouches.EstAcceptable`, `NomsTouches.Decrire`, `LibelleVitesse`. Il faudrait un projet de tests + `InternalsVisibleTo` (méthodes `private` aujourd'hui) | Moyenne |
-| Commentaire mal placé | Dans `LecteurSelection.cs`, le `<summary>` de `SimulerCtrlC` est au-dessus de `ModificateurEnfonce` | Basse, trivial |
 | `keybd_event` obsolète | Remplacer par `SendInput` si un souci de fiabilité apparaît | Basse |
 | Table de vitesse dans la fenêtre | Elle décrit le moteur ; pourrait vivre dans `MoteurVocal` | Basse |
 | `FenetrePrincipale` fait ~700 lignes | Fichiers, menus et raccourci pourraient sortir en classes dédiées si elle grossit encore | Basse |
